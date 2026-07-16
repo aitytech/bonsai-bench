@@ -1,0 +1,7 @@
+.venv*/
+models/
+bin/
+*.gguf
+*.json.lock
+__pycache__/
+.DS_Store
