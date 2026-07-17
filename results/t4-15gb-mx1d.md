@@ -31,10 +31,20 @@ Server-measured (llama-server --jinja, code-gen prompt, 600 tokens,
 `--spec-type draft-dspark --spec-draft-n-max 4 -ngld 999 -np 1`;
 n-max MUST be 4 = drafter block_size, larger values refuse to load):
 
-| Model | baseline gen | + dspark | speedup | draft acceptance |
-|---|---:|---:|---:|---|
-| Ternary 27B | 13.4 t/s | 16.3 t/s | +22% | 439/639 (69%) |
-| 1-bit 27B | 16.4 t/s | **24.9 t/s** | **+52%** | 441/629 (70%) |
+| Model | baseline gen | + dspark (default) | + dspark `--spec-draft-p-min 0.4` | best speedup |
+|---|---:|---:|---:|---:|
+| Ternary 27B | 13.4 t/s | 16.3–18.9 t/s | **23.3 t/s** (446/612 = 73% accept) | **+74%** |
+| 1-bit 27B | 16.4 t/s | 24.9 t/s | **25.8 t/s** (445/615 = 72% accept) | +57% |
+
+**`--spec-draft-p-min 0.4` is the key tuning knob on T4.** At the default
+threshold the drafter over-drafts (788 drafts, 51% acceptance in our repro run)
+and every rejected block wastes a full 4-token verify pass — expensive on a
+card where each pass streams the whole model. p-min 0.4 makes drafting more
+selective (73% acceptance) and turns ternary's +22% into +74%. Sweep showed
+0.4 > 0.1 > default; batch-verify kernel scaling is NOT the issue (batch-4
+step costs 1.96x a batch-1 step for ternary, 2.13x for 1-bit — measured with
+llama-batched-bench). Expect run-to-run variance of ±2 t/s (passively cooled
+card, 71-77C under sustained load).
 
 Verification is lossless (output distribution identical to non-speculative).
 The +52% on 1-bit makes sense: each accepted 4-token block amortizes the
