@@ -22,8 +22,31 @@ Measured 2026-07-17 with `scripts/setup_t4.sh` (llama-bench, -fa 1).
   attention, kernel launches), which is why tg is only 12.7/15.9 t/s despite
   decent streaming.
 - Consequence: on T4, going ternary -> 1-bit buys only +25% tg (overhead
-  dominates). Speculative decoding (dspark, CUDA path) should help more here —
-  untested so far.
-- Practical serving: `BONSAI_VARIANT=1bit ./scripts/setup_t4.sh --server` is the
-  sweet spot: 15.9 t/s, OpenAI-compatible endpoint, ~11GB VRAM headroom for
-  long context / more slots.
+  dominates). That overhead is exactly what dspark speculative decoding
+  amortizes — see below.
+
+## DSpark speculative decoding (CUDA) — the big T4 win
+
+Server-measured (llama-server --jinja, code-gen prompt, 600 tokens,
+`--spec-type draft-dspark --spec-draft-n-max 4 -ngld 999 -np 1`;
+n-max MUST be 4 = drafter block_size, larger values refuse to load):
+
+| Model | baseline gen | + dspark | speedup | draft acceptance |
+|---|---:|---:|---:|---|
+| Ternary 27B | 13.4 t/s | 16.3 t/s | +22% | 439/639 (69%) |
+| 1-bit 27B | 16.4 t/s | **24.9 t/s** | **+52%** | 441/629 (70%) |
+
+Verification is lossless (output distribution identical to non-speculative).
+The +52% on 1-bit makes sense: each accepted 4-token block amortizes the
+~45 ms fixed per-token overhead that dominates this card. Note dspark costs
+prefill (~36 vs 56 t/s in-server, tap-capture overhead) and disables
+cross-request prompt caching (-np 1) — best for single-user generation-heavy
+workloads, skip it for multi-turn chat with long shared prefixes.
+
+CAUTION (from the M1 Max results): dspark on Apple Metal is a 46% SLOWDOWN.
+CUDA-only optimization.
+
+- Practical serving sweet spot:
+  `BONSAI_VARIANT=1bit ./scripts/setup_t4.sh --server` plus the dspark flags
+  above -> **24.9 t/s on a 2018 card**, within 12% of an M1 Max on MLX,
+  with ~9GB VRAM still free.
