@@ -70,3 +70,27 @@ effort.
   identical output). Kernel experiments were all reverted, so stock numerics ship.
 - `aitytech/mlx` branch `q2-kernel-opt` intentionally carries no kernel diffs —
   the working tree ended clean after reverts; this document is the deliverable.
+
+---
+
+## Appendix: weight forensics — how PrismML made the model (2026-07-17)
+
+Compared shipped ternary codes vs the ORIGINAL Qwen/Qwen3.6-27B weights
+(layer-31 mlp down/gate, 4000 random groups each; `scripts/weight_forensics.py`):
+
+| metric | down_proj | gate_proj |
+|---|---:|---:|
+| sign(orig) match on nonzeros | 97.6% | 97.9% |
+| agreement vs TWN(orig) / L2-opt(orig) | 80.3 / 78.8% | 80.6 / 78.7% |
+| sparsity: pack vs L2-opt | 29.8 vs 46.4% | 29.4 vs 46.3% |
+| corr(orig, dequant) | 0.839 | 0.843 |
+| pack-zero position in orig magnitude ranking | p22 | p22 |
+
+Reading: NOT pure PTQ (only ~80% agreement with any local rounding of the
+original weights, and far fewer zeros than L2-optimal), but anchored to the
+pretrained model (97.8% sign preservation, corr 0.84). Consistent with the
+publicly stated method: QAT from the pretrained checkpoint with ternary
+forward / full-precision backward, which re-assigns ~20% of codes and learns
+all scales while preserving the sign skeleton. The proprietary part is making
+that stable at 27B scale with 95% retention — the recipe class itself is
+public (BitDistiller/STE-QAT family).
