@@ -41,8 +41,7 @@ if [ ! -x bin/cuda/llama-bench ]; then
 fi
 export LD_LIBRARY_PATH="$PWD/bin/cuda${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
-# ── Model ──
-pip -q install "huggingface-hub>=1.5.0" 2>/dev/null || true
+# ── Model ── (plain curl from HF — no python deps, works on PEP-668 distros)
 if [ "$VARIANT" = "1bit" ]; then
     REPO="prism-ml/Bonsai-27B-gguf";        FILE="Bonsai-27B-Q1_0.gguf"
 else
@@ -50,9 +49,11 @@ else
 fi
 if [ ! -f "models/$FILE" ]; then
     echo "downloading $REPO/$FILE ..."
-    python3 -c "
-from huggingface_hub import hf_hub_download
-hf_hub_download('$REPO', '$FILE', local_dir='models')"
+    mkdir -p models
+    curl -L --fail --progress-bar -C - \
+      "https://huggingface.co/${REPO}/resolve/main/${FILE}" \
+      -o "models/$FILE.part"
+    mv "models/$FILE.part" "models/$FILE"
 fi
 
 # ── Bench ──
